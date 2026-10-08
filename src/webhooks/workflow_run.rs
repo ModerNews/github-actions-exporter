@@ -8,6 +8,7 @@ use crate::webhooks::workflow_status::WorkflowStatus;
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkflowRun {
     pub id: i64,
+    pub node_id: String,
     pub run_number: i64,
     pub run_attempt: i64,
     pub workflow_id: i64,

@@ -47,6 +47,8 @@ carry no Actions-specific fields we need.
 ## `workflow_run` payload
 
 Top-level keys: `action`, `workflow_run`, `workflow`, `repository`, `organization`, `sender`, `installation`.
+Only `action`, `workflow_run`, `workflow`, `repository`, `sender` are required — see
+[Generic objects](#generic-objects).
 
 `workflow_run` (all required unless noted):
 
@@ -67,10 +69,10 @@ Top-level keys: `action`, `workflow_run`, `workflow`, `repository`, `organizatio
 | `updated_at` | date-time | |
 | `head_branch` | string | |
 | `head_sha` | string | |
-| `head_commit` | object | `commit-simple` |
-| `repository`, `head_repository` | object | `repository-lite` |
-| `actor`, `triggering_actor` | object | `user`; differ on re-runs |
-| `pull_requests` | array | |
+| `head_commit` | object | [`commit-simple`](#generic-objects) |
+| `repository`, `head_repository` | object | [`repository-lite`](#generic-objects) — **not** the full top-level `repository` |
+| `actor`, `triggering_actor` | object | [`user`](#generic-objects); differ on re-runs |
+| `pull_requests` | array | Stub objects only — [see below](#pull_requests-and-repo-ref) |
 | `referenced_workflows` | array | **optional** — see above |
 | `previous_attempt_url` | string \| null | Set when `run_attempt > 1` |
 | `check_suite_id`, `check_suite_node_id` | integer, string | |
@@ -85,7 +87,8 @@ The sibling `workflow` object: `id`, `node_id`, `name`, `path`, `state`, `create
 ## `workflow_job` payload
 
 Top-level keys: `action`, `workflow_job`, `repository`, `organization`, `sender`, `installation`,
-`deployment` (optional).
+`deployment` (optional). Only `action`, `workflow_job`, `repository`, `sender` are required — see
+[Generic objects](#generic-objects).
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -119,6 +122,112 @@ metric for self-hosted runner saturation and the main reason to ingest `workflow
 
 In-progress and queued steps have correspondingly narrower shapes; `status` is `queued` / `in_progress`
 with null timestamps. Per-step metrics are a cardinality trap — see below.
+
+## Generic objects
+
+Both payloads are mostly made of shared definitions that the tables above name but do not spell out
+(`commit-simple`, `repository-lite`, `user`, …). They are reused verbatim across every GitHub webhook, so
+they are documented once, here. The tables below list the non-URL fields; the `*_url` fields are elided for
+readability only — they are uniformly `string` and required, several are URI *templates* (`{/other_user}`,
+`{archive_format}`), and the one exception is `organization.html_url`, which is **optional**.
+
+### Which object sits where
+
+| Location | Definition |
+| --- | --- |
+| top-level `repository` | `repository` — the **full** object |
+| `workflow_run.repository`, `workflow_run.head_repository` | `repository-lite` |
+| top-level `sender`, `workflow_run.actor`, `workflow_run.triggering_actor`, `repository*.owner` | `user` |
+| top-level `organization` | `organization` |
+| top-level `installation` | `installation-lite` |
+| `workflow_run.head_commit` | `commit-simple` |
+| `workflow_run.head_commit.author`, `.committer` | `committer` |
+| `workflow_run.pull_requests[].head.repo`, `.base.repo` | `repo-ref` |
+
+**The two `repository` shapes are not the same object.** The top level carries the full definition — 96
+extra keys including `default_branch`, `visibility`, `archived`, `topics`, `pushed_at`, `language`,
+`custom_properties`, and the counters. Nested under `workflow_run` you get `repository-lite`, which has
+none of them. A type that deserializes one will reject the other if it requires any full-only field, so
+either model them separately or model only the lite subset and read it from both positions.
+
+**`organization` and `installation` are optional at the top level.** The required set for both
+`workflow_run$*` and `workflow_job$*` is only `action`, `repository`, `sender`, and the event object
+(plus `workflow` for `workflow_run`). Org-level subscriptions do send `organization`, but it is not
+contractually there — do not make it a hard dependency of parsing. Same for `installation`, which is
+absent outside GitHub App deliveries.
+
+### `repository-lite`
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `id` | integer | |
+| `node_id` | string | |
+| `name` | string | `infra-charts` |
+| `full_name` | string | `WMS-DEV/infra-charts` — **this is the `repository` metric label** |
+| `private` | boolean | verified `true` |
+| `fork` | boolean | |
+| `description` | string \| null | |
+| `owner` | object | `user` |
+
+All required, `description` nullable. 38 URL fields besides.
+
+### `user`
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `login` | string | |
+| `id` | integer | |
+| `node_id` | string | |
+| `type` | enum | `Bot` \| `User` \| `Organization` |
+| `site_admin` | boolean | |
+| `gravatar_id` | string | required, verified empty `""` |
+| `name` | string | **optional** |
+| `email` | string \| null | **optional** |
+
+`type` is the useful one: it separates automation from humans without parsing logins. Verified — a Renovate
+app arrives as `actor.type: "Bot"` with `login: "…[bot]"`, while `repository.owner.type` is `"Organization"`.
+The `[bot]` suffix is a convention; `type` is the contract.
+
+### `commit-simple` and `committer`
+
+`commit-simple`: `id` (string — the commit SHA, *not* an integer), `tree_id` (string), `message` (string),
+`timestamp` (date-time), `author` and `committer` (both `committer` objects). All required.
+
+`committer`: `name` (string, required), `email` (string \| null, required), `date` (date-time, optional),
+`username` (string, optional). On the verified run only `name` and `email` were present — treat `date` and
+`username` as genuinely absent, not null.
+
+`message` is free text and `id` is unbounded: both are in the cardinality table below for a reason.
+
+### `organization` and `installation-lite`
+
+`organization`: `login`, `id`, `node_id`, `description` (string \| null), all required, plus 9 URL fields.
+`login` is the org slug and the only field worth keeping.
+
+`installation-lite`: `id` and `node_id`, both required. Nothing else — if you need installation detail you
+have to call the API.
+
+### `pull_requests[]` and `repo-ref`
+
+Each element: `url`, `id` (number), `number` (number), `head`, `base` — all required,
+`additionalProperties: false`. `head` and `base` are each `{ ref, sha, repo }`, all required, where `repo`
+is a `repo-ref`: `{ id, url, name }`, all required, `additionalProperties: false`.
+
+Note what is *not* here: no `title`, no `state`, no `merged`. This is a stub, not `pull-request`. Verified —
+`pull_requests[0].number` was `60` with `head.ref: "renovate/amazon-aws-cli-2.x"` and `base.ref: "master"`,
+and that is the whole of what a `workflow_run` tells you about the PR. `base.ref` is the one genuinely
+useful field, since it is the bounded branch (`master`/`main`) that `head_branch` is not.
+
+The array is required but empty for non-PR events.
+
+### Live payloads carry fields the schema does not
+
+Verified: every `user` in our payloads has a `user_view_type` (`"public"`) that
+`@octokit/webhooks-schemas@7.6.1` does not define. GitHub adds fields without a schema release.
+
+Consequence: **never reject unknown fields.** Deserialization must ignore them, or a routine GitHub-side
+addition becomes a parse failure and a silent metrics gap across the whole org. The schema is a floor on
+what arrives, not a description of it.
 
 ## Delivery semantics
 
@@ -163,3 +272,17 @@ jq -r '.definitions | keys[] | select(test("workflow_job|workflow_run"))' schema
 
 Per-action variants live at `.definitions["workflow_job$completed"]` etc. and narrow the base
 `workflow-job` / `workflow-run` definitions — always read both.
+
+The generic objects above come out of the same file. To re-derive one, minus the URL noise:
+
+```sh
+jq -r '.definitions["repository-lite"] as $o
+  | ($o.required // []) as $req
+  | $o.properties | to_entries[]
+  | select(.key | test("_url$|^url$") | not)
+  | "\(.key): \(.value["$ref"] // (.value.type | tostring))\(if (.key | IN($req[])) then "" else " [optional]" end)"
+' schema.json
+```
+
+Live payloads are the other half of the check — the schema omits fields GitHub actually sends (see above),
+so diff a real delivery against it rather than trusting either alone.
