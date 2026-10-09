@@ -1,3 +1,4 @@
+pub mod envelope;
 pub mod event;
 pub mod referenced_workflow;
 pub mod workflow_conclusion;

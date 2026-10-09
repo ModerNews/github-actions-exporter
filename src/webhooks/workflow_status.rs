@@ -29,8 +29,7 @@ mod tests {
             ("waiting", WorkflowStatus::Waiting),
         ];
         for (wire, expected) in &cases {
-            let got: WorkflowStatus =
-                serde_json::from_value(serde_json::json!(wire)).expect(wire);
+            let got: WorkflowStatus = serde_json::from_value(serde_json::json!(wire)).expect(wire);
             assert_eq!(&got, expected, "{wire}");
         }
     }

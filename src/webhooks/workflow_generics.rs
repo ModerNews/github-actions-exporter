@@ -147,6 +147,37 @@ pub struct RepoRef {
     pub name: String,
 }
 
+/// The workflow *definition* — the `.yml` on disk — as opposed to
+/// [`WorkflowRun`], which is one execution of it. Only the run envelope
+/// carries it.
+///
+/// [`WorkflowRun`]: crate::webhooks::workflow_run::WorkflowRun
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Workflow {
+    pub id: i64,
+    pub node_id: String,
+    pub name: String,
+    pub path: String,
+    pub state: WorkflowState,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub url: String,
+    pub html_url: String,
+    pub badge_url: String,
+}
+
+/// Not the same axis as `WorkflowStatus`/`WorkflowConclusion`: this is whether
+/// the definition is enabled, not how a run went.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowState {
+    Active,
+    Deleted,
+    DisabledFork,
+    DisabledInactivity,
+    DisabledManually,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,6 +205,23 @@ mod tests {
         let _: Commit = parse("head_commit", &r["head_commit"]);
         let _: Committer = parse("head_commit.author", &r["head_commit"]["author"]);
         let _: PullRequest = parse("pull_requests[0]", &r["pull_requests"][0]);
+    }
+
+    /// Every variant against its wire string, matching the guard on
+    /// `WorkflowStatus` and `WorkflowConclusion`.
+    #[test]
+    fn all_workflow_states_match_their_wire_names() {
+        for (wire, expected) in [
+            ("active", WorkflowState::Active),
+            ("deleted", WorkflowState::Deleted),
+            ("disabled_fork", WorkflowState::DisabledFork),
+            ("disabled_inactivity", WorkflowState::DisabledInactivity),
+            ("disabled_manually", WorkflowState::DisabledManually),
+        ] {
+            let got: WorkflowState = serde_json::from_value(json!(wire)).expect(wire);
+            assert_eq!(got, expected, "{wire}");
+        }
+        assert!(serde_json::from_value::<WorkflowState>(json!("disabled")).is_err());
     }
 
     #[test]

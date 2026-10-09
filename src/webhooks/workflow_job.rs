@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
+use crate::Ingester;
 use crate::webhooks::workflow_conclusion::WorkflowConclusion;
 use crate::webhooks::workflow_status::WorkflowStatus;
 
@@ -29,6 +30,13 @@ pub struct WorkflowJob {
     pub html_url: String,
     pub run_url: String,
     pub check_run_url: String,
+}
+
+impl Ingester for WorkflowJob {
+    fn ingest(&self) -> Result<(), Box<dyn std::error::Error>> {
+        tracing::info!(?self);
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

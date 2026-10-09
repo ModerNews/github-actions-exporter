@@ -1,10 +1,6 @@
 //! Event identifiers.
+use crate::{FromHeader, ParseHeader};
 
-/// Which webhook arrived, from the `X-GitHub-Event` header.
-///
-/// An enum because the handler dispatches on it. An `Other` must still be
-/// acked `204`: returning 4xx for unrecognised events gets the webhook
-/// disabled by GitHub.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WebhookEvent {
     WorkflowRun,
@@ -15,15 +11,6 @@ pub enum WebhookEvent {
 }
 
 impl WebhookEvent {
-    pub fn from_header(value: &str) -> Self {
-        match value {
-            "workflow_run" => Self::WorkflowRun,
-            "workflow_job" => Self::WorkflowJob,
-            "ping" => Self::Ping,
-            other => Self::Other(other.to_owned()),
-        }
-    }
-
     pub fn as_str(&self) -> &str {
         match self {
             Self::WorkflowRun => "workflow_run",
@@ -34,17 +21,35 @@ impl WebhookEvent {
     }
 }
 
+impl FromHeader for WebhookEvent {
+    const HEADER: &'static str = "x-github-event";
+}
+
+impl ParseHeader for WebhookEvent {
+    fn parse_header(value: &str) -> Option<Self> {
+        Some(match value {
+            "workflow_run" => Self::WorkflowRun,
+            "workflow_job" => Self::WorkflowJob,
+            "ping" => Self::Ping,
+            s => Self::Other(s.into()),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn header_events_parse_and_fall_back() {
-        assert_eq!(WebhookEvent::from_header("workflow_job"), WebhookEvent::WorkflowJob);
-        assert_eq!(WebhookEvent::from_header("ping"), WebhookEvent::Ping);
         assert_eq!(
-            WebhookEvent::from_header("issues"),
-            WebhookEvent::Other("issues".into())
+            WebhookEvent::parse_header("workflow_job"),
+            Some(WebhookEvent::WorkflowJob)
+        );
+        assert_eq!(WebhookEvent::parse_header("ping"), Some(WebhookEvent::Ping));
+        assert_eq!(
+            WebhookEvent::parse_header("issues"),
+            Some(WebhookEvent::Other("issues".into()))
         );
     }
 }

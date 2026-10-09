@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
+use crate::Ingester;
 use crate::webhooks::referenced_workflow::ReferencedWorkflow;
 use crate::webhooks::workflow_conclusion::WorkflowConclusion;
 use crate::webhooks::workflow_generics::{Commit, PullRequest, Repository, User};
@@ -51,6 +52,13 @@ pub struct WorkflowRun {
 impl WorkflowRun {
     pub fn queue_delay(&self) -> chrono::TimeDelta {
         self.run_started_at - self.created_at
+    }
+}
+
+impl Ingester for WorkflowRun {
+    fn ingest(&self) -> Result<(), Box<dyn std::error::Error>> {
+        tracing::info!(?self);
+        Ok(())
     }
 }
 
