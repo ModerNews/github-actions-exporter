@@ -1,3 +1,6 @@
+mod errors;
+mod webhooks;
+
 use axum::{
     Json, Router,
     body::Bytes,
@@ -9,7 +12,7 @@ use serde::Serialize;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
-mod webhooks;
+use crate::errors::header_error::HeaderError;
 
 const MAX_BODY: usize = 25 * 1024 * 1024;
 
@@ -20,6 +23,24 @@ struct Health {
 
 async fn health() -> Json<Health> {
     Json(Health { status: "ok" })
+}
+
+pub trait FromHeader: Sized {
+    const HEADER: &'static str;
+    fn from_header(value: &str) -> Option<Self>;
+}
+
+pub trait RequireHeader {
+    fn require<T: FromHeader>(&self) -> Result<T, HeaderError>;
+}
+
+impl RequireHeader for HeaderMap {
+    fn require<T: FromHeader>(&self) -> Result<T, HeaderError> {
+        match let header_str = self
+            .get(T::HEADER)
+            .ok_or(|_| HeaderError::Missing(T::HEADER)?
+            .to_str();
+    }
 }
 
 fn required_header<'a>(
