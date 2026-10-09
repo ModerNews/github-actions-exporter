@@ -3,6 +3,7 @@ use serde::Deserialize;
 
 use crate::webhooks::referenced_workflow::ReferencedWorkflow;
 use crate::webhooks::workflow_conclusion::WorkflowConclusion;
+use crate::webhooks::workflow_generics::{Commit, PullRequest, Repository, User};
 use crate::webhooks::workflow_status::WorkflowStatus;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -24,12 +25,12 @@ pub struct WorkflowRun {
     pub updated_at: DateTime<Utc>,
     pub head_branch: String,
     pub head_sha: String,
-    // pub head_commit: Commit,
-    // pub repository: Repository,
-    // pub head_repository: Repository,
-    // pub actor: User,
-    // pub triggering_actor: User,
-    // pub pull_requests: Vec<PullRequest>,
+    pub head_commit: Commit,
+    pub repository: Repository,
+    pub head_repository: Repository,
+    pub actor: User,
+    pub triggering_actor: User,
+    pub pull_requests: Vec<PullRequest>,
     #[serde(default)]
     pub referenced_workflows: Vec<ReferencedWorkflow>,
     pub check_suite_id: i64,

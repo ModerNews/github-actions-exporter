@@ -49,6 +49,8 @@ async fn github_webhook(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn process_webhook(event: String, delivery: String, body: String) {}
+
 fn app() -> Router {
     Router::new()
         .route("/healthz", get(health))
