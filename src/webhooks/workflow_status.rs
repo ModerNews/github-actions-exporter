@@ -12,6 +12,18 @@ pub enum WorkflowStatus {
     Waiting,
 }
 
+impl From<WorkflowStatus> for String {
+    fn from(value: WorkflowStatus) -> Self {
+        match value {
+            WorkflowStatus::Requested => "requested".into(),
+            WorkflowStatus::InProgress => "in_progress".into(),
+            WorkflowStatus::Completed => "completed".into(),
+            WorkflowStatus::Queued => "queued".into(),
+            WorkflowStatus::Waiting => "waiting".into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

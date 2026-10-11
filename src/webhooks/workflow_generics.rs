@@ -83,6 +83,16 @@ pub enum UserType {
     Organization,
 }
 
+impl From<UserType> for String {
+    fn from(value: UserType) -> Self {
+        match value {
+            UserType::Bot => "Bot".into(),
+            UserType::User => "User".into(),
+            UserType::Organization => "Organization".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Commit {
     pub id: String,
@@ -176,6 +186,18 @@ pub enum WorkflowState {
     DisabledFork,
     DisabledInactivity,
     DisabledManually,
+}
+
+impl From<WorkflowState> for String {
+    fn from(value: WorkflowState) -> Self {
+        match value {
+            WorkflowState::Active => "active".into(),
+            WorkflowState::Deleted => "deleted".into(),
+            WorkflowState::DisabledFork => "disabled_fork".into(),
+            WorkflowState::DisabledInactivity => "disabled_inactivity".into(),
+            WorkflowState::DisabledManually => "disabled_manually".into(),
+        }
+    }
 }
 
 #[cfg(test)]

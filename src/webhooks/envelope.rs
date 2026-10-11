@@ -24,6 +24,16 @@ pub enum WorkflowRunAction {
     Completed,
 }
 
+impl From<WorkflowRunAction> for String {
+    fn from(value: WorkflowRunAction) -> Self {
+        match value {
+            WorkflowRunAction::Requested => "requested".into(),
+            WorkflowRunAction::InProgress => "in_progress".into(),
+            WorkflowRunAction::Completed => "completed".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowJobAction {
@@ -31,6 +41,17 @@ pub enum WorkflowJobAction {
     InProgress,
     Completed,
     Waiting,
+}
+
+impl From<WorkflowJobAction> for String {
+    fn from(value: WorkflowJobAction) -> Self {
+        match value {
+            WorkflowJobAction::Queued => "queued".into(),
+            WorkflowJobAction::InProgress => "in_progress".into(),
+            WorkflowJobAction::Completed => "completed".into(),
+            WorkflowJobAction::Waiting => "waiting".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

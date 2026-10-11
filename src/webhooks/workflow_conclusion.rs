@@ -12,6 +12,24 @@ pub enum WorkflowConclusion {
     ActionRequired,
     Stale,
     Skipped,
+    // No Conclusion was provided by webhook
+    Unknown,
+}
+
+impl From<WorkflowConclusion> for String {
+    fn from(value: WorkflowConclusion) -> Self {
+        match value {
+            WorkflowConclusion::Success => "success".into(),
+            WorkflowConclusion::Failure => "failure".into(),
+            WorkflowConclusion::Neutral => "neutral".into(),
+            WorkflowConclusion::Cancelled => "cancelled".into(),
+            WorkflowConclusion::TimedOut => "timed_out".into(),
+            WorkflowConclusion::ActionRequired => "action_required".into(),
+            WorkflowConclusion::Stale => "stale".into(),
+            WorkflowConclusion::Skipped => "skipped".into(),
+            WorkflowConclusion::Unknown => "unknown".into(),
+        }
+    }
 }
 
 #[cfg(test)]
