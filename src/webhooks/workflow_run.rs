@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use crate::Ingester;
 use crate::webhooks::referenced_workflow::ReferencedWorkflow;
 use crate::webhooks::workflow_conclusion::WorkflowConclusion;
 use crate::webhooks::workflow_generics::{Commit, PullRequest, Repository, User};

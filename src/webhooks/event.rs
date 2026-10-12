@@ -1,5 +1,5 @@
 //! Event identifiers.
-use crate::{FromHeader, ParseHeader};
+use crate::http::headers::{FromHeader, ParseHeader};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WebhookEvent {

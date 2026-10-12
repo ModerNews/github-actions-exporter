@@ -13,6 +13,7 @@ pub mod github_actions_runs_in_flight;
 pub mod github_actions_runs_total;
 pub mod github_actions_workflow_last_completion_timestamp_seconds;
 
+use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
@@ -20,6 +21,13 @@ use prometheus_client::encoding::text::encode;
 use prometheus_client::registry::Registry;
 
 use crate::metrics::github_actions_jobs_total::JobsTotal;
+
+/// Writes one delivery into the registry. Implemented by the delivery
+/// envelopes, which are the only types carrying both the payload and the
+/// `repository` every Actions metric is labelled by.
+pub trait Ingester {
+    fn ingest(&self, metrics: &Metrics) -> Result<(), Box<dyn Error>>;
+}
 
 #[derive(Clone)]
 pub struct Metrics {

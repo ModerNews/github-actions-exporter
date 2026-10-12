@@ -7,12 +7,12 @@
 
 use serde::Deserialize;
 
+use crate::metrics::Ingester;
 use crate::metrics::Metrics;
 use crate::metrics::github_actions_jobs_total::JobsTotalLabels;
 use crate::webhooks::workflow_generics::{Installation, Organization, Repository, User, Workflow};
 use crate::webhooks::workflow_job::WorkflowJob;
 use crate::webhooks::workflow_run::WorkflowRun;
-use crate::Ingester;
 
 /// Snake_case on the wire, same as [`WorkflowStatus`]; the run-level actions
 /// are a subset of the job-level ones — there is no `queued` for a run.
