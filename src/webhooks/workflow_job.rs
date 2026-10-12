@@ -50,6 +50,16 @@ impl WorkflowJob {
         self.completed_at.map(|done| done - self.started_at)
     }
 
+    pub fn runner_label(&self) -> String {
+        if self.labels.is_empty() {
+            return "unknown".into();
+        }
+
+        let mut labels = self.labels.clone();
+        labels.sort();
+        labels.join(",")
+    }
+
     pub fn inner_name(&self) -> &str {
         self.name
             .split_once(" / ")

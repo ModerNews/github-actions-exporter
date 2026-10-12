@@ -5,14 +5,25 @@
 //! `action` plus the delivery context. Parsing a payload struct against the
 //! raw body fails with `missing field `id``, so every event gets an envelope.
 
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::metrics::Ingester;
 use crate::metrics::Metrics;
+use crate::metrics::github_actions_exporter_delivery_lag_seconds::ExporterDeliveryLagSecondsLabels;
+use crate::metrics::github_actions_job_duration_seconds::JobDurationSecondsLabels;
+use crate::metrics::github_actions_job_queue_seconds::JobQueueSecondsLabels;
+use crate::metrics::github_actions_jobs_in_flight::JobsInFlightLabels;
 use crate::metrics::github_actions_jobs_total::JobsTotalLabels;
+use crate::metrics::github_actions_referenced_workflow_runs_total::ReferencedWorkflowRunsTotalLabels;
+use crate::metrics::github_actions_run_duration_seconds::RunDurationSecondsLabels;
+use crate::metrics::github_actions_runs_in_flight::RunsInFlightLabels;
+use crate::metrics::github_actions_runs_total::RunsTotalLabels;
+use crate::metrics::github_actions_workflow_last_completion_timestamp_seconds::WorkflowLastCompletionTimestampSecondsLabels;
 use crate::webhooks::workflow_generics::{Installation, Organization, Repository, User, Workflow};
 use crate::webhooks::workflow_job::WorkflowJob;
 use crate::webhooks::workflow_run::WorkflowRun;
+use crate::webhooks::workflow_status::WorkflowStatus;
 
 /// Snake_case on the wire, same as [`WorkflowStatus`]; the run-level actions
 /// are a subset of the job-level ones — there is no `queued` for a run.
@@ -82,13 +93,73 @@ pub struct WorkflowJobEnvelope {
     pub installation: Option<Installation>,
 }
 
+fn lag_seconds(observed_at: DateTime<Utc>) -> f64 {
+    (Utc::now() - observed_at).num_seconds().max(0) as f64
+}
+
+fn elapsed_seconds(span: chrono::TimeDelta) -> f64 {
+    span.num_seconds().max(0) as f64
+}
+
 impl Ingester for WorkflowRunEnvelope {
-    fn ingest(&self, _metrics: &Metrics) -> Result<(), Box<dyn std::error::Error>> {
+    fn ingest(&self, metrics: &Metrics) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(
             action = ?self.action,
             repo = %self.repository.full_name,
             "workflow_run"
         );
+
+        metrics
+            .exporter_last_delivery_timestamp_seconds
+            .set(Utc::now().timestamp());
+
+        let run = &self.workflow_run;
+
+        metrics
+            .exporter_delivery_lag_seconds
+            .get_or_create(&ExporterDeliveryLagSecondsLabels::from(self))
+            .observe(lag_seconds(run.updated_at));
+
+        match self.action {
+            WorkflowRunAction::Requested => {
+                metrics
+                    .runs_in_flight
+                    .get_or_create(&RunsInFlightLabels::from(self))
+                    .inc();
+            }
+            WorkflowRunAction::InProgress => {}
+            WorkflowRunAction::Completed => {
+                metrics
+                    .runs_in_flight
+                    .get_or_create(&RunsInFlightLabels::from(self))
+                    .dec();
+
+                metrics
+                    .runs_total
+                    .get_or_create(&RunsTotalLabels::from(self))
+                    .inc();
+
+                metrics
+                    .run_duration_seconds
+                    .get_or_create(&RunDurationSecondsLabels::from(self))
+                    .observe(elapsed_seconds(run.updated_at - run.run_started_at));
+
+                for referenced in &run.referenced_workflows {
+                    metrics
+                        .referenced_workflow_runs_total
+                        .get_or_create(&ReferencedWorkflowRunsTotalLabels::from((self, referenced)))
+                        .inc();
+                }
+
+                let completed_at = run.updated_at.timestamp();
+                let last = metrics
+                    .workflow_last_completion_timestamp_seconds
+                    .get_or_create(&WorkflowLastCompletionTimestampSecondsLabels::from(self));
+                if completed_at > last.get() {
+                    last.set(completed_at);
+                }
+            }
+        }
 
         Ok(())
     }
@@ -103,9 +174,62 @@ impl Ingester for WorkflowJobEnvelope {
         );
 
         metrics
-            .jobs_total
-            .get_or_create(&JobsTotalLabels::from(self))
-            .inc();
+            .exporter_last_delivery_timestamp_seconds
+            .set(Utc::now().timestamp());
+
+        let job = &self.workflow_job;
+
+        metrics
+            .exporter_delivery_lag_seconds
+            .get_or_create(&ExporterDeliveryLagSecondsLabels::from(self))
+            .observe(lag_seconds(match self.action {
+                WorkflowJobAction::Queued | WorkflowJobAction::Waiting => job.created_at,
+                WorkflowJobAction::InProgress => job.started_at,
+                WorkflowJobAction::Completed => job.completed_at.unwrap_or(job.started_at),
+            }));
+
+        match self.action {
+            WorkflowJobAction::Queued | WorkflowJobAction::Waiting => {
+                metrics
+                    .jobs_in_flight
+                    .get_or_create(&JobsInFlightLabels::from(self))
+                    .inc();
+            }
+            WorkflowJobAction::InProgress => {
+                let labels = JobsInFlightLabels::from(self);
+                metrics
+                    .jobs_in_flight
+                    .get_or_create(&labels.clone().with_status(WorkflowStatus::Queued))
+                    .dec();
+                metrics.jobs_in_flight.get_or_create(&labels).inc();
+            }
+            WorkflowJobAction::Completed => {
+                metrics
+                    .jobs_in_flight
+                    .get_or_create(
+                        &JobsInFlightLabels::from(self).with_status(WorkflowStatus::InProgress),
+                    )
+                    .dec();
+
+                metrics
+                    .jobs_total
+                    .get_or_create(&JobsTotalLabels::from(self))
+                    .inc();
+
+                metrics
+                    .job_queue_seconds
+                    .get_or_create(&JobQueueSecondsLabels::from(self))
+                    .observe(elapsed_seconds(job.queue_wait()));
+
+                if let Some(duration) = job.duration().filter(|d| *d > chrono::TimeDelta::zero()) {
+                    metrics
+                        .job_duration_seconds
+                        .get_or_create(&JobDurationSecondsLabels::from(self))
+                        .observe(elapsed_seconds(duration));
+                }
+            }
+        }
+
         Ok(())
     }
 }
