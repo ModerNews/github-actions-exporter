@@ -14,6 +14,7 @@ use axum::{
     routing::{get, post},
 };
 use hmac::{Hmac, KeyInit, Mac};
+use prometheus_client::encoding::text::encode;
 use serde::Serialize;
 use sha2::Sha256;
 use tower_http::trace::TraceLayer;
@@ -142,6 +143,18 @@ async fn github_webhook(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn get_metrics(
+    State(state): State<AppState>,
+) -> Result<(StatusCode, String), (StatusCode, String)> {
+    Ok(state.metrics.encode().map_or(
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to render the metrics".into(),
+        ),
+        |v| (StatusCode::OK, v),
+    ))
+}
+
 async fn process_webhook(
     event: WebhookEvent,
     body: Bytes,
@@ -186,6 +199,7 @@ fn app(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(health))
         .route("/api/v1/github", post(github_webhook))
+        .route("/api/v1/metrics", get(get_metrics))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
