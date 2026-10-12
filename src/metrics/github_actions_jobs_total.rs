@@ -1,6 +1,7 @@
 use prometheus_client::encoding::EncodeLabelSet;
 use prometheus_client::metrics::{counter::Counter, family::Family};
 
+use crate::metric;
 use crate::webhooks::envelope::WorkflowJobEnvelope;
 use crate::webhooks::workflow_conclusion::WorkflowConclusion;
 
@@ -13,7 +14,12 @@ pub struct JobsTotalLabels {
     runner_group_name: String,
 }
 
-pub type JobsTotal = Family<JobsTotalLabels, Counter>;
+metric! {
+    JobsTotal(Family<JobsTotalLabels, Counter>),
+    key: "github_actions_jobs",
+    help: "Jobs that reached a terminal state, including those that never executed",
+    new: Family::default(),
+}
 
 impl From<&WorkflowJobEnvelope> for JobsTotalLabels {
     fn from(value: &WorkflowJobEnvelope) -> Self {
