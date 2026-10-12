@@ -9,7 +9,7 @@ use anyhow::Context;
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{DefaultBodyLimit, State},
+    extract::{DefaultBodyLimit, FromRef, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
@@ -20,6 +20,7 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
 use crate::errors::{header_error::HeaderError, signature_error::SignatureError};
+use crate::metrics::Metrics;
 use crate::webhooks::envelope::{WorkflowJobEnvelope, WorkflowRunEnvelope};
 use crate::webhooks::event::WebhookEvent;
 
@@ -35,7 +36,7 @@ async fn health() -> Json<Health> {
 }
 
 pub trait Ingester {
-    fn ingest(&self) -> Result<(), Box<dyn Error>>;
+    fn ingest(&self, metrics: &Metrics) -> Result<(), Box<dyn Error>>;
 }
 
 pub trait ParseHeader: Sized {
@@ -76,10 +77,24 @@ pub struct Signature([u8; 32]);
 
 type HmacSha256 = Hmac<Sha256>;
 
-impl Signature {
-    pub fn verify(&self, mut mac: HmacSha256, body: &[u8]) -> Result<(), SignatureError> {
+#[derive(Clone)]
+pub struct Verifier(HmacSha256);
+
+impl Verifier {
+    fn from_env() -> anyhow::Result<Self> {
+        let secret = std::env::var(GITHUB_WEBHOOK_SECRET_KEY)
+            .with_context(|| format!("{GITHUB_WEBHOOK_SECRET_KEY} must be set"))?;
+        anyhow::ensure!(
+            !secret.is_empty(),
+            "{GITHUB_WEBHOOK_SECRET_KEY} must not be empty"
+        );
+        Ok(Self(HmacSha256::new_from_slice(secret.as_bytes())?))
+    }
+
+    fn verify(&self, sig: &Signature, body: &[u8]) -> Result<(), SignatureError> {
+        let mut mac = self.0.clone();
         mac.update(body);
-        mac.verify_slice(&self.0)
+        mac.verify_slice(&sig.0)
             .map_err(|_| SignatureError::Invalid)
     }
 }
@@ -108,7 +123,9 @@ async fn github_webhook(
         .map_err(|e| e.to_http())?;
     let sig: Signature = headers.require().map_err(|e| e.to_http())?;
 
-    sig.verify(state.verifier, &body)
+    state
+        .verifier
+        .verify(&sig, &body)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid signature".to_owned()))?;
 
     tracing::info!(
@@ -118,17 +135,25 @@ async fn github_webhook(
         "webhook received"
     );
 
-    if let Err(error) = process_webhook(event, body).await {
+    if let Err(error) = process_webhook(event, body, &state.metrics).await {
         tracing::error!(delivery, %error, "failed to process webhook");
     }
 
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn process_webhook(event: WebhookEvent, body: Bytes) -> Result<(), Box<dyn Error>> {
+async fn process_webhook(
+    event: WebhookEvent,
+    body: Bytes,
+    metrics: &Metrics,
+) -> Result<(), Box<dyn Error>> {
     match event {
-        WebhookEvent::WorkflowRun => serde_json::from_slice::<WorkflowRunEnvelope>(&body)?.ingest(),
-        WebhookEvent::WorkflowJob => serde_json::from_slice::<WorkflowJobEnvelope>(&body)?.ingest(),
+        WebhookEvent::WorkflowRun => {
+            serde_json::from_slice::<WorkflowRunEnvelope>(&body)?.ingest(metrics)
+        }
+        WebhookEvent::WorkflowJob => {
+            serde_json::from_slice::<WorkflowJobEnvelope>(&body)?.ingest(metrics)
+        }
         _ => Ok(()),
     }
 }
@@ -138,27 +163,29 @@ const BIND_ADDR_KEY: &str = "BIND_ADDR";
 
 #[derive(Clone)]
 struct AppState {
-    verifier: HmacSha256,
+    verifier: Verifier,
+    metrics: Metrics,
 }
 
 impl AppState {
-    fn from_env() -> anyhow::Result<Self> {
-        let secret = std::env::var(GITHUB_WEBHOOK_SECRET_KEY)
-            .with_context(|| format!("{GITHUB_WEBHOOK_SECRET_KEY} must be set"))?;
-        anyhow::ensure!(
-            !secret.is_empty(),
-            "{GITHUB_WEBHOOK_SECRET_KEY} must not be empty"
-        );
-        Ok(Self {
-            verifier: HmacSha256::new_from_slice(secret.as_bytes())?,
-        })
+    fn new(verifier: Verifier) -> Self {
+        Self {
+            verifier,
+            metrics: Metrics::default(),
+        }
+    }
+}
+
+impl FromRef<AppState> for Metrics {
+    fn from_ref(state: &AppState) -> Self {
+        state.metrics.clone()
     }
 }
 
 fn app(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(health))
-        .route("/github", post(github_webhook))
+        .route("/api/v1/github", post(github_webhook))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -172,7 +199,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let state = AppState::from_env()?;
+    let state = AppState::new(Verifier::from_env()?);
 
     let addr: SocketAddr = std::env::var(BIND_ADDR_KEY)
         .unwrap_or_else(|_| "0.0.0.0:8080".into())

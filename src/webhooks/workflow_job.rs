@@ -32,13 +32,6 @@ pub struct WorkflowJob {
     pub check_run_url: String,
 }
 
-impl Ingester for WorkflowJob {
-    fn ingest(&self) -> Result<(), Box<dyn std::error::Error>> {
-        tracing::info!(?self);
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkflowStep {
     pub name: String,

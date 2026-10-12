@@ -55,13 +55,6 @@ impl WorkflowRun {
     }
 }
 
-impl Ingester for WorkflowRun {
-    fn ingest(&self) -> Result<(), Box<dyn std::error::Error>> {
-        tracing::info!(?self);
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

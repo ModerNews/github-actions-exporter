@@ -7,10 +7,12 @@
 
 use serde::Deserialize;
 
-use crate::Ingester;
+use crate::metrics::Metrics;
+use crate::metrics::github_actions_jobs_total::JobsTotalLabels;
 use crate::webhooks::workflow_generics::{Installation, Organization, Repository, User, Workflow};
 use crate::webhooks::workflow_job::WorkflowJob;
 use crate::webhooks::workflow_run::WorkflowRun;
+use crate::Ingester;
 
 /// Snake_case on the wire, same as [`WorkflowStatus`]; the run-level actions
 /// are a subset of the job-level ones — there is no `queued` for a run.
@@ -58,23 +60,16 @@ impl From<WorkflowJobAction> for String {
 pub struct WorkflowRunEnvelope {
     pub action: WorkflowRunAction,
     pub workflow_run: WorkflowRun,
-    /// The definition the run came from. Nullable on the wire when the `.yml`
-    /// has been deleted since the run started, so a tightened type here would
-    /// drop exactly the deliveries you most want to see.
     #[serde(default)]
     pub workflow: Option<Workflow>,
     pub repository: Repository,
     pub sender: User,
-    /// Absent on personal-account repositories.
     #[serde(default)]
     pub organization: Option<Organization>,
-    /// Only sent when the webhook is delivered via a GitHub App.
     #[serde(default)]
     pub installation: Option<Installation>,
 }
 
-/// The job payload carries no repository of its own, so the envelope's
-/// `repository` is the only place the job's repo is named.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkflowJobEnvelope {
     pub action: WorkflowJobAction,
@@ -88,24 +83,30 @@ pub struct WorkflowJobEnvelope {
 }
 
 impl Ingester for WorkflowRunEnvelope {
-    fn ingest(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn ingest(&self, _metrics: &Metrics) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(
             action = ?self.action,
             repo = %self.repository.full_name,
             "workflow_run"
         );
-        self.workflow_run.ingest()
+
+        Ok(())
     }
 }
 
 impl Ingester for WorkflowJobEnvelope {
-    fn ingest(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn ingest(&self, metrics: &Metrics) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(
             action = ?self.action,
             repo = %self.repository.full_name,
             "workflow_job"
         );
-        self.workflow_job.ingest()
+
+        metrics
+            .jobs_total
+            .get_or_create(&JobsTotalLabels::from(self))
+            .inc();
+        Ok(())
     }
 }
 
