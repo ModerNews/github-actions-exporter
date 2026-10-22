@@ -1,8 +1,8 @@
 use prometheus_client::encoding::EncodeLabelSet;
 use prometheus_client::metrics::{family::Family, gauge::Gauge};
 
+use crate::entry_map::RunEntry;
 use crate::metric;
-use crate::webhooks::envelope::WorkflowRunEnvelope;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct RunsInFlightLabels {
@@ -18,12 +18,12 @@ metric! {
     new: Family::default(),
 }
 
-impl From<&WorkflowRunEnvelope> for RunsInFlightLabels {
-    fn from(value: &WorkflowRunEnvelope) -> Self {
+impl From<&RunEntry> for RunsInFlightLabels {
+    fn from(value: &RunEntry) -> Self {
         Self {
-            repository: value.repository.full_name.clone(),
-            workflow_name: value.workflow_run.name.clone(),
-            event: value.workflow_run.event.clone(),
+            repository: value.repository.clone(),
+            workflow_name: value.workflow_name.clone(),
+            event: value.event.clone(),
         }
     }
 }

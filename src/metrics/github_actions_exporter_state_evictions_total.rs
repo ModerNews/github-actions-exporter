@@ -15,3 +15,12 @@ metric! {
     help: "Entity state entries evicted past the max lifetime; alert on reason=lost only",
     new: Family::default(),
 }
+
+impl ExporterStateEvictionsTotalLabels {
+    pub fn new(entity: &str, reason: &str) -> Self {
+        Self {
+            entity: entity.to_owned(),
+            reason: reason.to_owned(),
+        }
+    }
+}

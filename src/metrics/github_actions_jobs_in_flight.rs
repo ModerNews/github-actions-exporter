@@ -1,9 +1,8 @@
 use prometheus_client::encoding::EncodeLabelSet;
 use prometheus_client::metrics::{family::Family, gauge::Gauge};
 
+use crate::entry_map::JobEntry;
 use crate::metric;
-use crate::webhooks::envelope::WorkflowJobEnvelope;
-use crate::webhooks::workflow_status::WorkflowStatus;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct JobsInFlightLabels {
@@ -20,24 +19,13 @@ metric! {
     new: Family::default(),
 }
 
-impl From<&WorkflowJobEnvelope> for JobsInFlightLabels {
-    fn from(value: &WorkflowJobEnvelope) -> Self {
+impl From<&JobEntry> for JobsInFlightLabels {
+    fn from(value: &JobEntry) -> Self {
         Self {
-            repository: value.repository.full_name.clone(),
-            workflow_name: value
-                .workflow_job
-                .workflow_name
-                .clone()
-                .unwrap_or("".into()),
-            status: value.workflow_job.status.clone().into(),
-            runner_label: value.workflow_job.runner_label(),
+            repository: value.repository.clone(),
+            workflow_name: value.workflow_name.clone(),
+            status: value.status.clone().into(),
+            runner_label: value.runner_label.clone(),
         }
-    }
-}
-
-impl JobsInFlightLabels {
-    pub fn with_status(mut self, status: WorkflowStatus) -> Self {
-        self.status = status.into();
-        self
     }
 }

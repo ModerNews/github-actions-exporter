@@ -8,7 +8,11 @@ use axum::{
 };
 use tower_http::trace::TraceLayer;
 
+use chrono::TimeDelta;
+
+use crate::entry_map::EntityState;
 use crate::metrics::Metrics;
+use crate::scrape::Scraper;
 use crate::signature::Verifier;
 
 const MAX_BODY: usize = 25 * 1024 * 1024;
@@ -17,13 +21,19 @@ const MAX_BODY: usize = 25 * 1024 * 1024;
 pub struct AppState {
     pub verifier: Verifier,
     pub metrics: Metrics,
+    pub entity_state: EntityState,
+    pub entity_ttl: TimeDelta,
+    pub scraper: Scraper,
 }
 
 impl AppState {
-    pub fn new(verifier: Verifier) -> Self {
+    pub fn new(verifier: Verifier, entity_ttl: TimeDelta) -> Self {
         Self {
             verifier,
             metrics: Metrics::default(),
+            entity_state: EntityState::new(),
+            entity_ttl,
+            scraper: Scraper::new(),
         }
     }
 }

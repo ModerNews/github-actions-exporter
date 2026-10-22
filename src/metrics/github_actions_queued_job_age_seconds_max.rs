@@ -1,8 +1,8 @@
 use prometheus_client::encoding::EncodeLabelSet;
 use prometheus_client::metrics::{family::Family, gauge::Gauge};
 
+use crate::entry_map::JobEntry;
 use crate::metric;
-use crate::webhooks::envelope::WorkflowJobEnvelope;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct QueuedJobAgeSecondsMaxLabels {
@@ -17,11 +17,11 @@ metric! {
     new: Family::default(),
 }
 
-impl From<&WorkflowJobEnvelope> for QueuedJobAgeSecondsMaxLabels {
-    fn from(value: &WorkflowJobEnvelope) -> Self {
+impl From<&JobEntry> for QueuedJobAgeSecondsMaxLabels {
+    fn from(value: &JobEntry) -> Self {
         Self {
-            repository: value.repository.full_name.clone(),
-            runner_label: value.workflow_job.runner_label(),
+            repository: value.repository.clone(),
+            runner_label: value.runner_label.clone(),
         }
     }
 }

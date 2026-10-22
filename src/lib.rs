@@ -1,6 +1,9 @@
 pub mod config;
+pub mod entry_map;
 pub mod errors;
 pub mod http;
+pub mod ingest;
 pub mod metrics;
+pub mod scrape;
 pub mod signature;
 pub mod webhooks;

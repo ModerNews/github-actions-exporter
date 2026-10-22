@@ -13,7 +13,6 @@ pub mod github_actions_runs_in_flight;
 pub mod github_actions_runs_total;
 pub mod github_actions_workflow_last_completion_timestamp_seconds;
 
-use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
@@ -34,10 +33,6 @@ use crate::metrics::github_actions_run_duration_seconds::RunDurationSeconds;
 use crate::metrics::github_actions_runs_in_flight::RunsInFlight;
 use crate::metrics::github_actions_runs_total::RunsTotal;
 use crate::metrics::github_actions_workflow_last_completion_timestamp_seconds::WorkflowLastCompletionTimestampSeconds;
-
-pub trait Ingester {
-    fn ingest(&self, metrics: &Metrics) -> Result<(), Box<dyn Error>>;
-}
 
 pub trait Metric: Clone + prometheus_client::registry::Metric {
     const METRIC_KEY: &'static str;
