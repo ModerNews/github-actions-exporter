@@ -45,9 +45,19 @@
           clippy
           rustfmt
           rust-analyzer
+          cargo-llvm-cov
         ];
-        # rust-analyzer needs the stdlib sources, which aren't in `rustc` here.
-        env.RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
+        env = {
+          # rust-analyzer needs the stdlib sources, which aren't in `rustc` here.
+          RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
+          # This `rustc` ships no llvm-tools-preview, so cargo-llvm-cov has to
+          # be pointed at nixpkgs' LLVM. Referenced by store path rather than
+          # added to `packages`, which would put the whole LLVM toolchain on
+          # PATH. The two must share an LLVM major version or llvm-profdata
+          # cannot read the profiles rustc emits.
+          LLVM_COV = "${pkgs.llvm}/bin/llvm-cov";
+          LLVM_PROFDATA = "${pkgs.llvm}/bin/llvm-profdata";
+        };
       };
     });
 
