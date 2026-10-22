@@ -165,10 +165,12 @@ impl Ingester for WorkflowJobEnvelope {
             .get_or_create(&JobsTotalLabels::from(self))
             .inc();
 
-        metrics
-            .job_queue_seconds
-            .get_or_create(&JobQueueSecondsLabels::from(self))
-            .observe(elapsed_seconds(job.queue_wait()));
+        if job.queue_wait() > TimeDelta::zero() {
+            metrics
+                .job_queue_seconds
+                .get_or_create(&JobQueueSecondsLabels::from(self))
+                .observe(elapsed_seconds(job.queue_wait()));
+        }
 
         if let Some(duration) = job.duration().filter(|d| *d > TimeDelta::zero()) {
             metrics
