@@ -46,6 +46,7 @@
           rustfmt
           rust-analyzer
           cargo-llvm-cov
+          cargo-nextest
         ];
         env = {
           # rust-analyzer needs the stdlib sources, which aren't in `rustc` here.

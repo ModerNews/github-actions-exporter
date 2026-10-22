@@ -49,11 +49,21 @@ jobs:
         shared-key: coverage
     - name: Install cargo-llvm-cov
       uses: taiki-e/install-action@cargo-llvm-cov
+    - name: Install cargo-nextest
+      uses: taiki-e/install-action@nextest
     - name: Generate code coverage
-      run: cargo llvm-cov --all-features --workspace --codecov --output-path codecov.json
+      env:
+        NEXTEST_PROFILE: ci
+      run: cargo llvm-cov nextest --all-features --workspace --codecov --output-path codecov.json
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: codecov.json
         fail_ci_if_error: true
+    - name: Upload test results to Codecov
+      if: ${{ !cancelled() }}
+      uses: codecov/test-results-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: target/nextest/ci/junit.xml
