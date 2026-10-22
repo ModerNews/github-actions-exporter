@@ -17,7 +17,6 @@ It consumes `workflow_run` and `workflow_job` deliveries and parses them into pr
 - [Installation](#installation)
 - [Known limitations](#known-limitations)
 - [Development](#development)
-- [Documentation](#documentation)
 
 ## Usage
 
@@ -67,7 +66,7 @@ scrape_configs:
 
 ## Metrics
 
-Fourteen metrics in three tiers. 
+Fourteen metrics in three tiers.
 
 **Terminal**, emitted once per execution when it finishes — `github_actions_jobs_total`,
 `github_actions_runs_total`, `github_actions_job_queue_seconds`,

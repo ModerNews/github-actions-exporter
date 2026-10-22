@@ -327,7 +327,6 @@ mod tests {
         }
     }
 
-    /// The full decision table from `docs/entity-state-tests.md`.
     #[test]
     fn the_transition_table_holds() {
         let cases = [

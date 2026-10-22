@@ -1,7 +1,4 @@
 //! Scrape side: evict, then recompute Tier 2 from the entity map.
-//!
-//! Rule 4 of `docs/metrics.md` — these gauges are never inc/dec'd, so they
-//! cannot drift.
 
 use std::collections::HashMap;
 use std::fmt;
