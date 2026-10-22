@@ -2,68 +2,116 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
+
+  version-guard:
+    if: github.event_name == 'pull_request'
 
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v6
-    - uses: Swatinem/rust-cache@v2
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check the crate version
+        run: |
+          set -euo pipefail
+
+          version_of() {
+            awk '
+              /^\[/ { in_pkg = ($0 == "[package]") }
+              in_pkg && /^version[[:space:]]*=/ {
+                sub(/^version[[:space:]]*=[[:space:]]*"/, ""); sub(/".*$/, ""); print; exit
+              }'
+          }
+
+          base="origin/${{ github.base_ref }}"
+          new=$(version_of < Cargo.toml)
+          old=$(git show "$base:Cargo.toml" | version_of)
+          changed=$(git diff --name-only "$base...HEAD" -- src Cargo.toml Cargo.lock Dockerfile)
+
+          {
+            echo "## Crate version"
+            echo ""
+            echo "| Base | Head | Artifact changed |"
+            echo "| ---- | ---- | ---------------- |"
+            echo "| \`$old\` | \`$new\` | $([ -n "$changed" ] && echo yes || echo no) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$changed" ]; then
+            echo "No change to src, Cargo.toml, Cargo.lock or Dockerfile — no bump required."
+            exit 0
+          fi
+
+          if [ "$new" = "$old" ]; then
+            echo "::error::The artifact changed but Cargo.toml still says $old. Bump the version."
+            exit 1
+          fi
+
+          if git rev-parse -q --verify "refs/tags/v$new" >/dev/null; then
+            echo "::error::v$new is already released. Pick a version that has not been tagged."
+            exit 1
+          fi
+
+          echo "OK — $old -> $new"
 
   lint:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v6
-    - uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: lint
-    - name: Formatting
-      run: cargo fmt --check
-    - name: Clippy
-      run: cargo clippy --all-targets -- -D warnings
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
 
   coverage:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v6
-    - name: Install Rust
-      run: rustup update stable
-    - uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: coverage
-    - name: Install cargo-llvm-cov
-      uses: taiki-e/install-action@cargo-llvm-cov
-    - name: Install cargo-nextest
-      uses: taiki-e/install-action@nextest
-    - name: Generate code coverage
-      env:
-        NEXTEST_PROFILE: ci
-      run: cargo llvm-cov nextest --all-features --workspace --codecov --output-path codecov.json
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v7
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        files: codecov.json
-        fail_ci_if_error: true
-    - name: Upload test results to Codecov
-      if: ${{ !cancelled() }}
-      uses: codecov/test-results-action@v1
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        files: target/nextest/ci/junit.xml
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup update stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: coverage
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - name: Generate code coverage
+        env:
+          NEXTEST_PROFILE: ci
+        run: cargo llvm-cov nextest --all-features --workspace --codecov --output-path codecov.json
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: codecov.json
+          fail_ci_if_error: true
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: target/nextest/ci/junit.xml

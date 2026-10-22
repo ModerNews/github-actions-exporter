@@ -84,6 +84,17 @@ Fourteen metrics in three tiers.
 
 ## Installation
 
+Container images are published to GHCR. The version in `Cargo.toml` is the release version: when a push
+to `main` carries a version not yet tagged, CI tags it `v<version>` and publishes that image tag
+alongside `latest` and `sha-<commit>`. Pushes that do not bump the version publish only the latter two.
+
+```console
+$ docker run -p 8080:8080 -e GITHUB_WEBHOOK_SECRET=... \
+    ghcr.io/modernews/github-actions-exporter:latest
+```
+
+The image is distroless and runs as uid `65532`.
+
 With Nix:
 
 ```console
@@ -127,17 +138,3 @@ $ NEXTEST_PROFILE=ci cargo llvm-cov nextest --all-features --workspace --codecov
 ```
 
 [nextest]: https://nexte.st
-
-## Documentation
-
-| | |
-| --- | --- |
-| [`webhook-contract.md`](docs/webhook-contract.md) | Payload shape, delivery semantics, and label cardinality. |
-| [`metrics.md`](docs/metrics.md) | The `/metrics` contract and the entity-state rules behind it. |
-| [`entity-state-tests.md`](docs/entity-state-tests.md) | Transition and eviction decision tables. |
-| [`roadmap.md`](docs/roadmap.md) | What is left to build, in dependency order. |
-
-Claims are marked **verified** where live traffic confirmed them and **spec** where only GitHub's
-documentation does. Live payloads carry fields the published schema omits.
-
-This codebase is written by hand — see [`AGENTS.md`](AGENTS.md).
