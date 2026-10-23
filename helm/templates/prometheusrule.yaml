@@ -1,0 +1,14 @@
+{{- if and .Values.prometheusRule.enabled .Values.prometheusRule.rules }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "github-actions-exporter.fullname" . }}
+  namespace: {{ .Values.prometheusRule.namespace | default (include "github-actions-exporter.namespace" .) }}
+  labels:
+    {{- include "github-actions-exporter.labelsWith" (dict "context" . "extra" .Values.prometheusRule.additionalLabels) | nindent 4 }}
+spec:
+  groups:
+    - name: {{ include "github-actions-exporter.fullname" . }}
+      rules:
+        {{- toYaml .Values.prometheusRule.rules | nindent 8 }}
+{{- end }}

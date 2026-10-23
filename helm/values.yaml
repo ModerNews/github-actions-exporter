@@ -1,0 +1,238 @@
+nameOverride: ""
+fullnameOverride: ""
+namespaceOverride: ""
+
+# Applied to every object the chart renders.
+commonLabels: {}
+# Adds `release: <release name>` to every object, for a Prometheus
+# serviceMonitorSelector that keys on it.
+releaseLabel: false
+
+image:
+  registry: ghcr.io
+  repository: modernews/github-actions-exporter
+  # Empty falls back to Chart.appVersion.
+  tag: ""
+  # Takes precedence over tag when set.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+  # - name: ghcr-credentials
+
+# Every counter, gauge and deduplication record lives in this process's memory
+# and is never shared or rebuilt. Two replicas split the webhook stream and
+# neither sees the whole picture — see README.
+replicaCount: 1
+
+# RollingUpdate on purpose, despite the single replica: a delivery refused
+# during a restart window is lost permanently. See README.
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+revisionHistoryLimit: 10
+
+# The webhook's shared secret, which must match the one set on the GitHub
+# organization webhook. Required: the exporter refuses to start without it.
+webhookSecret:
+  # Renders a Secret holding this value.
+  value: ""
+  # Or read it from a Secret you already manage; takes precedence over value.
+  existingSecret: ""
+  secretKey: webhook-secret
+
+# Max entity lifetime before eviction. Also bounds how long duplicate
+# deliveries are deduplicated — see README.
+entityTtlHours: 24
+
+# `tracing` filter directives.
+logFilter: info,tower_http=debug
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 8080
+  # Also sets the container's BIND_ADDR, so the two cannot drift.
+  targetPort: 8080
+  portName: http
+  annotations: {}
+  labels: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # Traefik: pick the entry point and attach middlewares here.
+    # traefik.ingress.kubernetes.io/router.entrypoints: websecure
+  hosts:
+    - host: github-actions-exporter.example.com
+      paths:
+        - path: /api/v1/github
+          pathType: Prefix
+  tls: []
+    # - secretName: github-actions-exporter-tls
+    #   hosts:
+    #     - github-actions-exporter.example.com
+
+prometheus:
+  monitor:
+    # Requires the Prometheus Operator CRDs. Nothing scrapes the exporter until
+    # this is on, or until you point a scrape_config at the Service yourself.
+    enabled: false
+    additionalLabels: {}
+    annotations: {}
+    namespace: ""
+    jobLabel: ""
+    path: /api/v1/metrics
+    scheme: http
+    interval: 30s
+    scrapeTimeout: ""
+    honorLabels: false
+    relabelings: []
+    metricRelabelings: []
+    proxyUrl: ""
+    tlsConfig: {}
+
+prometheusRule:
+  enabled: false
+  additionalLabels: {}
+  namespace: ""
+  rules: []
+    # - alert: GitHubActionsExporterNoDeliveries
+    #   annotations:
+    #     summary: No webhook deliveries received for an hour.
+    #     description: >-
+    #       The organization webhook may be disabled, misconfigured, or failing.
+    #       GitHub does not retry and discards failed deliveries after three
+    #       days, so anything missed in the meantime is unrecoverable.
+    #   expr: time() - github_actions_exporter_last_delivery_timestamp_seconds > 3600
+    #   for: 15m
+    #   labels:
+    #     severity: warning
+    #
+    # - alert: GitHubActionsExporterRejectingSignatures
+    #   annotations:
+    #     summary: Webhook deliveries are failing signature verification.
+    #     description: >-
+    #       webhookSecret does not match the secret configured on the GitHub
+    #       webhook. Every delivery is being rejected and lost.
+    #   expr: rate(github_actions_exporter_deliveries_total{outcome="rejected_signature"}[15m]) > 0
+    #   for: 5m
+    #   labels:
+    #     severity: critical
+    #
+    # - alert: GitHubActionsExporterParseErrors
+    #   annotations:
+    #     summary: Webhook payloads are failing to parse.
+    #     description: >-
+    #       An unparseable payload is acknowledged 204, which marks the delivery
+    #       OK at GitHub and makes it unrecoverable. Usually a payload schema
+    #       change.
+    #   expr: rate(github_actions_exporter_deliveries_total{outcome="parse_error"}[15m]) > 0
+    #   for: 5m
+    #   labels:
+    #     severity: warning
+    #
+    # - alert: GitHubActionsExporterLostEntities
+    #   annotations:
+    #     summary: Entities are being evicted before they completed.
+    #     description: >-
+    #       reason=lost means the entity aged past entityTtlHours while still
+    #       pending or in progress, so its completion delivery never arrived.
+    #       reason=completed is normal and not alerted on.
+    #   expr: rate(github_actions_exporter_state_evictions_total{reason="lost"}[1h]) > 0
+    #   for: 30m
+    #   labels:
+    #     severity: warning
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # The exporter makes no Kubernetes API calls and needs no RBAC.
+  automountServiceAccountToken: false
+
+# Pod-level.
+securityContext:
+  runAsNonRoot: true
+  # The distroless nonroot uid the image is built around.
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  # The exporter writes nothing to disk, so it needs no writable mount at all.
+  readOnlyRootFilesystem: true
+
+# Memory scales with entityTtlHours x delivery rate, not with request volume.
+resources: {}
+  # limits:
+  #   cpu: 200m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 25m
+  #   memory: 64Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 20
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 2
+  failureThreshold: 15
+
+priorityClassName: ""
+terminationGracePeriodSeconds: 30
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+podAnnotations: {}
+podLabels: {}
+dnsPolicy: ""
+hostAliases: []
+
+extraVolumes: []
+extraVolumeMounts: []
+extraEnv: []
+extraEnvFrom: []
+sidecars: []
+
+# Rendered verbatim as additional objects, each entry a string run through
+# `tpl`. Useful for a PVC or NetworkPolicy the chart has no dedicated value for.
+extraManifests: []
+  # - |
+  #   apiVersion: v1
+  #   kind: PersistentVolumeClaim
+  #   metadata:
+  #     name: snapshots
+  #   spec:
+  #     accessModes: [ReadWriteOnce]
+  #     resources:
+  #       requests:
+  #         storage: 1Gi

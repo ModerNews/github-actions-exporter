@@ -1,0 +1,47 @@
+{{- if .Values.prometheus.monitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "github-actions-exporter.fullname" . }}
+  namespace: {{ .Values.prometheus.monitor.namespace | default (include "github-actions-exporter.namespace" .) }}
+  labels:
+    {{- include "github-actions-exporter.labelsWith" (dict "context" . "extra" .Values.prometheus.monitor.additionalLabels) | nindent 4 }}
+  {{- with .Values.prometheus.monitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.prometheus.monitor.jobLabel }}
+  jobLabel: {{ . }}
+  {{- end }}
+  namespaceSelector:
+    matchNames:
+      - {{ include "github-actions-exporter.namespace" . }}
+  selector:
+    matchLabels:
+      {{- include "github-actions-exporter.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: {{ .Values.service.portName }}
+      scheme: {{ .Values.prometheus.monitor.scheme }}
+      path: {{ .Values.prometheus.monitor.path }}
+      interval: {{ .Values.prometheus.monitor.interval }}
+      {{- with .Values.prometheus.monitor.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      honorLabels: {{ .Values.prometheus.monitor.honorLabels }}
+      {{- with .Values.prometheus.monitor.proxyUrl }}
+      proxyUrl: {{ . }}
+      {{- end }}
+      {{- with .Values.prometheus.monitor.tlsConfig }}
+      tlsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.prometheus.monitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.prometheus.monitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,21 @@
+apiVersion: v2
+name: github-actions-exporter
+description: Prometheus exporter for GitHub Actions, driven by organization-level webhooks
+type: application
+version: 0.1.0
+appVersion: "0.1.1"
+
+home: https://github.com/ModerNews/github-actions-exporter
+sources:
+  - https://github.com/ModerNews/github-actions-exporter
+
+keywords:
+  - prometheus
+  - exporter
+  - monitoring
+  - github-actions
+
+maintainers:
+  - name: Grzegorz Jagielski
+    email: grzegorz.jagielski@gruzin.eu
+    url: https://github.com/ModerNews

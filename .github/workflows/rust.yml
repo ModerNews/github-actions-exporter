@@ -45,7 +45,7 @@ jobs:
           base="origin/${{ github.base_ref }}"
           new=$(version_of < Cargo.toml)
           old=$(git show "$base:Cargo.toml" | version_of)
-          changed=$(git diff --name-only "$base...HEAD" -- src Cargo.toml Cargo.lock Dockerfile)
+          changed=$(git diff --name-only "$base...HEAD" -- src Cargo.toml Dockerfile)
 
           {
             echo "## Crate version"

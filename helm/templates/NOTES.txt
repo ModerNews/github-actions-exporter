@@ -1,0 +1,40 @@
+github-actions-exporter has been deployed.
+
+{{ if .Values.ingress.enabled -}}
+1. Add ONE organization-level webhook in GitHub, subscribed to "Workflow runs"
+   and "Workflow jobs", with content type application/json and the same secret:
+{{- range .Values.ingress.hosts }}
+{{- $host := .host }}
+{{- range .paths }}
+     https://{{ $host }}{{ .path }}
+{{- end }}
+{{- end }}
+{{- if not .Values.ingress.tls }}
+
+   WARNING: ingress.tls is empty. GitHub validates the certificate on delivery
+   and will fail every one against a default or self-signed cert.
+{{- end }}
+{{- else -}}
+1. NOT REACHABLE. No Ingress was rendered, so GitHub cannot deliver anything.
+   Set ingress.enabled=true with your own host, or expose the Service yourself.
+{{- end }}
+
+2. Metrics are served on {{ .Values.prometheus.monitor.path }}, not /metrics.
+{{- if .Values.prometheus.monitor.enabled }}
+   A ServiceMonitor is scraping it every {{ .Values.prometheus.monitor.interval }}.
+{{- else }}
+   Nothing is scraping it. Set prometheus.monitor.enabled=true (needs the
+   Prometheus Operator CRDs), or add a scrape_config for the Service.
+{{- end }}
+
+3. Confirm deliveries are being accepted, not rejected — a secret mismatch is
+   not a crash, it is every delivery rejected:
+
+     kubectl port-forward svc/{{ include "github-actions-exporter.fullname" . }} {{ .Values.service.port }} -n {{ include "github-actions-exporter.namespace" . }}
+     curl -s localhost:{{ .Values.service.port }}{{ .Values.prometheus.monitor.path }} | grep deliveries
+
+   outcome="processed" is good; outcome="rejected_signature" means
+   webhookSecret does not match the secret set on the GitHub webhook.
+
+All state is in the pod's memory. A restart empties it, and anything GitHub
+delivered while the pod was down is gone for good.
