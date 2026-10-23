@@ -94,14 +94,19 @@ $ docker run -p 8080:8080 -e GITHUB_WEBHOOK_SECRET=... \
 
 The image is distroless and runs as uid `65532`.
 
-On Kubernetes, with the chart in [`helm/`](helm):
+On Kubernetes, the chart in [`helm/`](helm) is published to GHCR as an OCI artifact. CI releases it
+whenever `version` in `Chart.yaml` names a version the registry does not already hold, and only after
+the image its `appVersion` points at has been published:
 
 ```console
-$ helm install github-actions-exporter ./helm \
+$ helm install github-actions-exporter oci://ghcr.io/modernews/charts/github-actions-exporter \
+    --version <chart-version> \
     --set webhookSecret.value=... \
     --set ingress.enabled=true \
     --set 'ingress.hosts[0].host=<host>'
 ```
+
+Or straight from a checkout, substituting `./helm` for the `oci://` reference.
 
 The chart puts only `/api/v1/github` behind the ingress and keeps `/api/v1/metrics` cluster-internal, and
 it renders a `ServiceMonitor` on request. Every value is commented in

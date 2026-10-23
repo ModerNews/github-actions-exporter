@@ -1,0 +1,136 @@
+name: Helm
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "helm/**"
+      - ".github/helm-ci-values/**"
+      - ".github/workflows/helm.yml"
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CHART_DIR: helm
+  HELM_VERSION: v3.22.0
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [minimal, existing-secret, all-features]
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Resolve dependencies
+        run: helm dependency build "$CHART_DIR"
+      - name: Lint
+        run: |
+          helm lint --strict "$CHART_DIR" \
+            --values ".github/helm-ci-values/${{ matrix.scenario }}.yaml"
+      - name: Render
+        id: render
+        run: |
+          set -euo pipefail
+
+          out="rendered-${{ matrix.scenario }}.yaml"
+          helm template release-name "$CHART_DIR" \
+            --values ".github/helm-ci-values/${{ matrix.scenario }}.yaml" > "$out"
+
+          {
+            echo "## Render — \`${{ matrix.scenario }}\`"
+            echo ""
+            echo "| Kind | Name |"
+            echo "| ---- | ---- |"
+            yq -r 'select(. != null) | "| \(.kind) | \(.metadata.name) |"' "$out"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload rendered manifests
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: rendered-${{ matrix.scenario }}
+          path: rendered-${{ matrix.scenario }}.yaml
+
+  version-guard:
+    if: github.event_name == 'pull_request'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check the chart version
+        run: |
+          set -euo pipefail
+
+          # Same parser as rust.yml's version-guard, so the two agree on what
+          # the crate version is without invoking cargo here.
+          crate_version() {
+            awk '
+              /^\[/ { in_pkg = ($0 == "[package]") }
+              in_pkg && /^version[[:space:]]*=/ {
+                sub(/^version[[:space:]]*=[[:space:]]*"/, ""); sub(/".*$/, ""); print; exit
+              }'
+          }
+
+          base="origin/${{ github.base_ref }}"
+          chart="$CHART_DIR/Chart.yaml"
+
+          new=$(yq -r '.version' "$chart")
+
+          # Left empty when the base branch has no chart yet, i.e. this PR adds
+          # one. Kept as two steps because `git show ... | yq` swallows the
+          # missing-file failure and reports a version of "null" instead.
+          if base_chart=$(git show "$base:$chart" 2>/dev/null); then
+            old=$(printf '%s' "$base_chart" | yq -r '.version')
+          else
+            old=""
+          fi
+
+          app=$(yq -r '.appVersion' "$chart")
+          crate=$(crate_version < Cargo.toml)
+          changed=$(git diff --name-only "$base...HEAD" -- "$CHART_DIR")
+
+          {
+            echo "## Chart version"
+            echo ""
+            echo "| Chart version (base → head) | appVersion | Crate version | Chart changed |"
+            echo "| --------------------------- | ---------- | ------------- | ------------- |"
+            echo "| ${old:+\`$old\` → }\`$new\`${old:+} | \`$app\` | \`$crate\` | $([ -n "$changed" ] && echo yes || echo no) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          failed=0
+
+          # The release workflow only publishes a version GHCR does not already
+          # have, so an unbumped version means a changed chart is never released.
+          # A brand-new chart has nothing to bump from.
+          if [ -n "$old" ] && [ -n "$changed" ] && [ "$new" = "$old" ]; then
+            echo "::error file=$chart::The chart changed but version is still $old. Bump it."
+            failed=1
+          fi
+
+          # image.tag defaults to .Chart.AppVersion, and the published image is
+          # tagged with the crate version, so these two drifting apart points the
+          # chart at a tag that was never built.
+          if [ "$app" != "$crate" ]; then
+            echo "::error file=$chart::appVersion is $app but Cargo.toml says $crate. Set appVersion to \"$crate\"."
+            failed=1
+          fi
+
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "OK — chart ${old:-(new)} -> $new, appVersion $app matches crate $crate"
