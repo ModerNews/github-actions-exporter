@@ -1,0 +1,8 @@
+# CI render scenario: the smallest config that renders — the chart's own
+# defaults plus the one value it refuses to render without.
+#
+# These files exist to exercise the templates in CI. They are deliberately
+# outside helm/ so nothing here can be mistaken for a shipped example or an
+# environment's real values.
+webhookSecret:
+  value: ci-render-placeholder

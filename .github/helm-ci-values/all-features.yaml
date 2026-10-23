@@ -1,0 +1,138 @@
+# CI render scenario: every optional object switched on at once, so a template
+# behind a default-off toggle cannot rot unnoticed.
+webhookSecret:
+  value: ci-render-placeholder
+
+nameOverride: gae
+namespaceOverride: monitoring
+releaseLabel: true
+commonLabels:
+  app.kubernetes.io/part-of: ci
+
+replicaCount: 2
+revisionHistoryLimit: 3
+
+imagePullSecrets:
+  - name: ghcr-credentials
+
+service:
+  enabled: true
+  annotations:
+    example.com/annotation: "true"
+  labels:
+    example.com/label: "true"
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+  hosts:
+    - host: github-actions-exporter.ci.example.com
+      paths:
+        - path: /api/v1/github
+          pathType: Prefix
+  tls:
+    - secretName: github-actions-exporter-tls
+      hosts:
+        - github-actions-exporter.ci.example.com
+
+prometheus:
+  monitor:
+    enabled: true
+    additionalLabels:
+      release: kube-prometheus-stack
+    namespace: monitoring
+    jobLabel: app.kubernetes.io/name
+    scrapeTimeout: 10s
+    honorLabels: true
+    relabelings:
+      - action: labeldrop
+        regex: pod
+    metricRelabelings:
+      - action: keep
+        regex: github_actions_exporter_.*
+        sourceLabels: [__name__]
+    tlsConfig:
+      insecureSkipVerify: true
+
+prometheusRule:
+  enabled: true
+  additionalLabels:
+    release: kube-prometheus-stack
+  namespace: monitoring
+  rules:
+    - alert: GitHubActionsExporterNoDeliveries
+      annotations:
+        summary: No webhook deliveries received for an hour.
+      expr: time() - github_actions_exporter_last_delivery_timestamp_seconds > 3600
+      for: 15m
+      labels:
+        severity: warning
+
+serviceAccount:
+  create: false
+  name: preexisting-sa
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+priorityClassName: system-cluster-critical
+dnsPolicy: ClusterFirst
+
+hostAliases:
+  - ip: 127.0.0.1
+    hostnames: [localhost.ci]
+
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: gae
+
+podAnnotations:
+  example.com/annotation: "true"
+podLabels:
+  example.com/label: "true"
+
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
+extraEnv:
+  - name: EXTRA_ENV
+    value: "1"
+extraEnvFrom:
+  - configMapRef:
+      name: extra-config
+      optional: true
+
+sidecars:
+  - name: pause
+    image: registry.k8s.io/pause:3.10
+
+extraManifests:
+  - |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: {{ include "github-actions-exporter.fullname" . }}-ci
+    spec:
+      podSelector:
+        matchLabels:
+          {{- include "github-actions-exporter.selectorLabels" . | nindent 10 }}
+      policyTypes: [Ingress]

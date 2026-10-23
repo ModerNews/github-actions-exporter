@@ -1,0 +1,152 @@
+name: Helm Release
+
+on:
+  # Chained off Container rather than triggered by the push directly: the
+  # chart's appVersion names an image tag that Container publishes from the
+  # same commit, so releasing on the push would race the image into existence.
+  workflow_run:
+    workflows: ["Container"]
+    types: [completed]
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to release the chart from"
+        required: false
+        type: string
+        default: main
+
+concurrency:
+  group: helm-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch'))
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      CHART_DIR: helm
+      HELM_VERSION: v3.22.0
+      # Charts live in their own GHCR namespace, beside the app image rather
+      # than under it: oci://ghcr.io/<owner>/charts/<chart-name>.
+      CHART_NAMESPACE: charts
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Release the chart as it stood at the commit whose image was built,
+          # not whatever main has moved on to since.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_sha }}
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Read chart metadata
+        id: chart
+        run: |
+          set -euo pipefail
+
+          name=$(yq -r '.name' "$CHART_DIR/Chart.yaml")
+          version=$(yq -r '.version' "$CHART_DIR/Chart.yaml")
+          app_version=$(yq -r '.appVersion' "$CHART_DIR/Chart.yaml")
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+          {
+            echo "name=$name"
+            echo "version=$version"
+            echo "app_version=$app_version"
+            echo "chart_repo=oci://ghcr.io/$owner/$CHART_NAMESPACE"
+            echo "image=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.repository_owner }}" --password-stdin
+
+      - name: Check whether this version is already published
+        id: published
+        run: |
+          set -euo pipefail
+
+          target="${{ steps.chart.outputs.chart_repo }}/${{ steps.chart.outputs.name }}"
+          if helm show chart "$target" --version "${{ steps.chart.outputs.version }}" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "${{ steps.chart.outputs.name }} ${{ steps.chart.outputs.version }} is already in $target"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR (docker)
+        if: steps.published.outputs.skip != 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify the image appVersion points at exists
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+
+          ref="${{ steps.chart.outputs.image }}:${{ steps.chart.outputs.app_version }}"
+          if ! docker buildx imagetools inspect "$ref" >/dev/null 2>&1; then
+            echo "::error::$ref is not published. The chart defaults image.tag to appVersion, so this chart would deploy a tag that does not exist."
+            exit 1
+          fi
+          echo "OK — $ref exists"
+
+      - name: Resolve dependencies
+        if: steps.published.outputs.skip != 'true'
+        run: helm dependency build "$CHART_DIR"
+
+      - name: Lint
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          helm lint --strict "$CHART_DIR" \
+            --values .github/helm-ci-values/minimal.yaml
+
+      - name: Package
+        if: steps.published.outputs.skip != 'true'
+        id: package
+        run: |
+          set -euo pipefail
+
+          helm package "$CHART_DIR" --destination "$RUNNER_TEMP"
+          package="$RUNNER_TEMP/${{ steps.chart.outputs.name }}-${{ steps.chart.outputs.version }}.tgz"
+          test -f "$package"
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          helm push "${{ steps.package.outputs.package }}" \
+            "${{ steps.chart.outputs.chart_repo }}"
+
+      - name: Summary
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo "## Helm release"
+            echo ""
+            echo "| Chart | Version | appVersion | Published |"
+            echo "| ----- | ------- | ---------- | --------- |"
+            if [ "${{ steps.published.outputs.skip }}" = "true" ]; then
+              published="skipped — already in the registry"
+            else
+              published="\`${{ steps.chart.outputs.chart_repo }}/${{ steps.chart.outputs.name }}\`"
+            fi
+            echo "| \`${{ steps.chart.outputs.name }}\` | \`${{ steps.chart.outputs.version }}\` | \`${{ steps.chart.outputs.app_version }}\` | $published |"
+          } >> "$GITHUB_STEP_SUMMARY"
