@@ -11,6 +11,10 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
 env:
   CHART_DIR: helm
   HELM_VERSION: v3.22.0
