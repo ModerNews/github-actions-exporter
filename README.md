@@ -94,6 +94,19 @@ $ docker run -p 8080:8080 -e GITHUB_WEBHOOK_SECRET=... \
 
 The image is distroless and runs as uid `65532`.
 
+On Kubernetes, with the chart in [`helm/`](helm):
+
+```console
+$ helm install github-actions-exporter ./helm \
+    --set webhookSecret.value=... \
+    --set ingress.enabled=true \
+    --set 'ingress.hosts[0].host=<host>'
+```
+
+The chart puts only `/api/v1/github` behind the ingress and keeps `/api/v1/metrics` cluster-internal, and
+it renders a `ServiceMonitor` on request. Every value is commented in
+[`helm/values.yaml`](helm/values.yaml).
+
 With Nix:
 
 ```console
